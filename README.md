@@ -1,6 +1,6 @@
 # The Kafka Letter Box
 
-The Letter Box pattern enables organisations to exchange data asynchronously. Instead of performing queries on each other's APIs, they can listen to each other's changes. The letter box is a simple endpoint that can by registered somewhere to receive messages. It is the only endpoint organisations have to publish in integration scenarios.
+The Letter Box pattern enables organisations to exchange data asynchronously. Instead of performing queries on each other's APIs, they can listen to each other's changes. The letter box is a simple endpoint that can be registered somewhere to receive messages. It is the only endpoint organisations have to publish in integration scenarios.
 
 Behind the letter box, the routing of messages is done internally. This can evolve without impacting the senders of messages. The contract are only the messages themselves.
 
@@ -21,7 +21,33 @@ The configuration is managed by the [Lightbend Config package](https://github.co
 |cnPattern|No|The pattern to extract common names from the subject assignments in the client certificate. The default pattern is `^.*CN=([\p{IsAlphabetic}\d\-.*]+).*$`.|
 |header|No|This is the HTTP header that carries the subject information from the client certificate. There can be multiple comma-separated subject assignments in the value. The default header is `X-Forwarded-Tls-Client-Cert-Info`.|
 |kafka|Yes|All Kafka settings come below this entry. So for example, the setting `bootstrap.servers` would go to the entry `kafka.bootstrap.servers`.|
+|namespace|No|A name to distinguish several deployments in the same environment. The default value is `sse`.|
+|otlp.grpc|No|The OpenTelemetry endpoint for logs and metrics. It should be a URL like `http://localhost:4317`.|
 |topic|Yes|The Kafka topic in which the messages are published.|
+|tracesTopic|No|The Kafka topic to which the event traces are sent.|
+
+## Telemetry
+
+A few OpenTelemetry observable counters are emitted every minute. The following table shows the counters.
+
+|Counter|Description|
+|---|---|
+|http.server.average_duration_millis|The average request duration in the measured interval.|
+|http.server.average_request_bytes|The average request body size in bytes in the measured interval.|
+|http.server.average_response_bytes|The average response body size in bytes in the measured interval.|
+|http.server.requests|The number of requests during the measured interval.|
+
+The following attributes are added to the counters.
+
+|Attribute|Description|
+|---|---|
+|http.request.method|The request method.|
+|http.response.status_code|The status code of the response.|
+|instance|The UUID of the JES HTTP instance.|
+
+The logs are also sent to the OpenTelemetry endpoint.
+
+The event traces are JSON messages, as described in [JSON Streams Telemetry](https://jsonstreams.io/docs/logging.html). They are sent to the Kafka topic set in the `tracesTopic` configuration field.
 
 ## Building and Running
 

@@ -20,7 +20,7 @@ import static net.pincette.json.Factory.v;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.letterbox.Server.DEFAULT_HEADER;
-import static net.pincette.letterbox.Server.DOMAIN;
+import static net.pincette.letterbox.Server.DOMAIN_FIELD;
 import static net.pincette.rs.Box.box;
 import static net.pincette.rs.Cancel.cancel;
 import static net.pincette.rs.Chain.with;
@@ -171,7 +171,7 @@ class TestServer {
   }
 
   private static JsonObject stripTechnical(final JsonObject json) {
-    return createObjectBuilder(json).remove(CORR).remove(ID).remove(DOMAIN).build();
+    return createObjectBuilder(json).remove(CORR).remove(ID).remove(DOMAIN_FIELD).build();
   }
 
   private static Pair<JsonObject, Integer> test(
@@ -245,7 +245,7 @@ class TestServer {
             "Subject=\"CN=lemonade.be, L=Leuven\"",
             true);
 
-    assertEquals(createObjectBuilder(message).add(DOMAIN, "lemonade.be").build(), result.first);
+    assertEquals(createObjectBuilder(message).add(DOMAIN_FIELD, "lemonade.be").build(), result.first);
     assertEquals(202, result.second);
   }
 }
