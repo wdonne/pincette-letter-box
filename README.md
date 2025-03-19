@@ -1,6 +1,6 @@
 # The Kafka Letter Box
 
-The Letter Box pattern enables organisations to exchange data asynchronously. Instead of performing queries on each other's APIs, they can listen to each other's changes. The letter box is a simple endpoint that can be registered somewhere to receive messages. It is the only endpoint organisations have to publish in integration scenarios.
+The Letter Box pattern enables organisations to exchange data asynchronously. Instead of performing queries on each other's APIs, they can listen to each other's changes. The letter box is a simple endpoint that can be registered somewhere to receive messages. It is the only endpoint organisations have to publish in integration scenarios. It only supports the `HTTP POST` method.
 
 Behind the letter box, the routing of messages is done internally. This can evolve without impacting the senders of messages. The contract are only the messages themselves.
 
