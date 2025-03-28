@@ -3,7 +3,6 @@ package net.pincette.letterbox;
 import static com.typesafe.config.ConfigFactory.defaultOverrides;
 import static java.lang.Integer.parseInt;
 import static java.lang.System.exit;
-import static java.util.logging.Logger.getLogger;
 import static net.pincette.jes.tel.OtelUtil.addOtelLogHandler;
 import static net.pincette.jes.tel.OtelUtil.logRecordProcessor;
 import static net.pincette.jes.tel.OtelUtil.otelLogHandler;
@@ -14,9 +13,9 @@ import static net.pincette.letterbox.Common.VERSION;
 import static net.pincette.letterbox.Common.namespace;
 import static net.pincette.util.Util.initLogging;
 import static net.pincette.util.Util.isInteger;
+import static net.pincette.util.Util.tryToDoWithRethrow;
 
 import com.typesafe.config.Config;
-import java.util.logging.Logger;
 
 public class Application {
   private static void addOtelLogger(final Config config) {
@@ -37,6 +36,6 @@ public class Application {
     initLogging();
     addOtelLogger(config);
     LOGGER.info(() -> "Version " + VERSION);
-    new Server().withPort(parseInt(args[0])).withConfig(config).start();
+    tryToDoWithRethrow(Server::new, s -> s.withPort(parseInt(args[0])).withConfig(config).start());
   }
 }

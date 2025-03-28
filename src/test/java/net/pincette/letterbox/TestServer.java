@@ -14,6 +14,7 @@ import static java.util.concurrent.CompletableFuture.completedFuture;
 import static net.pincette.jes.JsonFields.CORR;
 import static net.pincette.jes.JsonFields.ID;
 import static net.pincette.jes.util.Kafka.topicPartitions;
+import static net.pincette.json.Factory.a;
 import static net.pincette.json.Factory.f;
 import static net.pincette.json.Factory.o;
 import static net.pincette.json.Factory.v;
@@ -21,11 +22,8 @@ import static net.pincette.json.JsonUtil.createObjectBuilder;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.letterbox.Server.DEFAULT_HEADER;
 import static net.pincette.letterbox.Server.DOMAIN_FIELD;
-import static net.pincette.rs.Box.box;
-import static net.pincette.rs.Cancel.cancel;
 import static net.pincette.rs.Chain.with;
-import static net.pincette.rs.Filter.filter;
-import static net.pincette.rs.Util.asValueAsync;
+import static net.pincette.rs.Util.asListAsync;
 import static net.pincette.rs.kafka.ConsumerEvent.STARTED;
 import static net.pincette.rs.kafka.Util.createTopics;
 import static net.pincette.rs.kafka.Util.deleteTopics;
@@ -54,12 +52,14 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.Flow.Processor;
 import java.util.concurrent.Flow.Publisher;
+import javax.json.JsonArray;
 import javax.json.JsonObject;
+import javax.json.JsonStructure;
 import net.pincette.kafka.json.JsonDeserializer;
 import net.pincette.rs.kafka.KafkaPublisher;
 import net.pincette.util.Pair;
+import net.pincette.util.State;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -100,12 +100,14 @@ class TestServer {
         .withValue("domains", fromIterable(domains));
   }
 
-  private static CompletionStage<JsonObject> consume(final String testCase) {
+  private static CompletionStage<List<JsonObject>> consume(
+      final JsonStructure message, final String testCase) {
     final KafkaPublisher<String, JsonObject> kafkaPublisher = kafkaPublisher(testCase);
 
     new Thread(kafkaPublisher::start).start();
 
-    return asValueAsync(consumer(kafkaPublisher, testCase));
+    return asListAsync(
+        consumer(kafkaPublisher, testCase, message instanceof JsonArray a ? a.size() : 1));
   }
 
   private static Map<String, Object> consumerConfig(final String groupId) {
@@ -119,11 +121,27 @@ class TestServer {
   }
 
   private static Publisher<JsonObject> consumer(
-      final KafkaPublisher<String, JsonObject> kafkaPublisher, final String testCase) {
+      final KafkaPublisher<String, JsonObject> kafkaPublisher,
+      final String testCase,
+      final int numberOfMessages) {
+    final State<Integer> count = new State<>(0);
+
     return with(kafkaPublisher.publishers().get(topic))
         .map(ConsumerRecord::value)
-        .map(testCaseProcessor(testCase))
+        .filter(json -> testCase.equals(json.getString(TEST_CASE, null)))
+        .map(
+            json -> {
+              count.set(count.get() + 1);
+              return json;
+            })
+        .until(json -> numberOfMessages == count.get())
         .get();
+  }
+
+  private static String getTestCase(final JsonStructure message) {
+    return message instanceof JsonObject o
+        ? o.getString(TEST_CASE)
+        : message.asJsonArray().get(0).asJsonObject().getString(TEST_CASE);
   }
 
   private static KafkaPublisher<String, JsonObject> kafkaPublisher(final String testCase) {
@@ -146,7 +164,7 @@ class TestServer {
   }
 
   private static HttpRequest request(
-      final JsonObject message, final String cnHeader, final String cnHeaderValue) {
+      final JsonStructure message, final String cnHeader, final String cnHeaderValue) {
     return HttpRequest.newBuilder()
         .uri(uri)
         .header(cnHeader, cnHeaderValue)
@@ -156,7 +174,7 @@ class TestServer {
   }
 
   private static CompletionStage<Integer> sendMessage(
-      final JsonObject message, final String cnHeader, final String cnHeaderValue) {
+      final JsonStructure message, final String cnHeader, final String cnHeaderValue) {
     return client
         .sendAsync(request(message, cnHeader, cnHeaderValue), discarding())
         .thenApply(HttpResponse::statusCode);
@@ -174,9 +192,9 @@ class TestServer {
     return createObjectBuilder(json).remove(CORR).remove(ID).remove(DOMAIN_FIELD).build();
   }
 
-  private static Pair<JsonObject, Integer> test(
+  private static Pair<List<JsonObject>, Integer> test(
       final Config config,
-      final JsonObject message,
+      final JsonStructure message,
       final String cnHeader,
       final String cnHeaderValue,
       final boolean consume) {
@@ -188,8 +206,8 @@ class TestServer {
                       () -> sendMessage(message, cnHeader, cnHeaderValue), ofSeconds(1));
 
               return (consume
-                      ? consume(message.getString(TEST_CASE))
-                      : completedFuture((JsonObject) null))
+                      ? consume(message, getTestCase(message))
+                      : completedFuture((List<JsonObject>) null))
                   .thenComposeAsync(response -> statusCode.thenApply(s -> pair(response, s)))
                   .toCompletableFuture()
                   .join();
@@ -197,15 +215,11 @@ class TestServer {
         .orElse(null);
   }
 
-  private static Processor<JsonObject, JsonObject> testCaseProcessor(final String testCase) {
-    return box(filter(json -> testCase.equals(json.getString(TEST_CASE, null))), cancel(v -> true));
-  }
-
   @Test
   @DisplayName("test1")
   void test1() {
     final JsonObject message = o(f(TEST_CASE, v("test1")));
-    final Pair<JsonObject, Integer> result =
+    final Pair<List<JsonObject>, Integer> result =
         test(
             config(list("lemonade.be")),
             message,
@@ -213,7 +227,8 @@ class TestServer {
             "Subject=\"CN=lemonade.be, L=Leuven\"",
             true);
 
-    assertEquals(message, stripTechnical(result.first));
+    assertEquals(1, result.first.size());
+    assertEquals(message, stripTechnical(result.first.get(0)));
     assertEquals(202, result.second);
   }
 
@@ -221,7 +236,7 @@ class TestServer {
   @DisplayName("test2")
   void test2() {
     final JsonObject message = o(f(TEST_CASE, v("test2")));
-    final Pair<JsonObject, Integer> result =
+    final Pair<List<JsonObject>, Integer> result =
         test(
             config(list("lemonade.be")),
             message,
@@ -237,7 +252,7 @@ class TestServer {
   @DisplayName("test3")
   void test3() {
     final JsonObject message = o(f(TEST_CASE, v("test3")), f(CORR, v("corr")), f(ID, v("id")));
-    final Pair<JsonObject, Integer> result =
+    final Pair<List<JsonObject>, Integer> result =
         test(
             config(list("lemonade.be")),
             message,
@@ -245,7 +260,31 @@ class TestServer {
             "Subject=\"CN=lemonade.be, L=Leuven\"",
             true);
 
-    assertEquals(createObjectBuilder(message).add(DOMAIN_FIELD, "lemonade.be").build(), result.first);
+    assertEquals(1, result.first.size());
+    assertEquals(
+        createObjectBuilder(message).add(DOMAIN_FIELD, "lemonade.be").build(), result.first.get(0));
+    assertEquals(202, result.second);
+  }
+
+  @Test
+  @DisplayName("test4")
+  void test4() {
+    final JsonArray message =
+        a(o(f(TEST_CASE, v("test1"))), o(f(TEST_CASE, v("test1"))), o(f(TEST_CASE, v("test1"))));
+    final Pair<List<JsonObject>, Integer> result =
+        test(
+            config(list("lemonade.be")),
+            message,
+            DEFAULT_HEADER,
+            "Subject=\"CN=lemonade.be, L=Leuven\"",
+            true);
+
+    assertEquals(message.size(), result.first.size());
+
+    for (int i = 0; i < message.size(); i++) {
+      assertEquals(message.get(i), stripTechnical(result.first.get(i)));
+    }
+
     assertEquals(202, result.second);
   }
 }

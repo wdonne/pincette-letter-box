@@ -6,7 +6,7 @@ Behind the letter box, the routing of messages is done internally. This can evol
 
 The letter box in this project only accepts mTLS connections with configured peer domains. It doesn't terminate mTLS itself, but relies on an proxy to do that. The proxy is supposed to communicate the domain information through an HTTP header.
 
-The incoming JSON messages are all put in the same configured Kafka topic. Applications can consume the topic and filter out what they need.
+The incoming JSON messages are all put in the same configured Kafka topic. Applications can consume the topic and filter out what they need. The messages you can post can be individual JSON objects or an array of objects.
 
 The fields `_id` and `_corr` are added with a random UUID if they are not yet present in the message. The field `_domain` is added with the domain that is found in the client certificate. If there is more than one domain in the client certificate, the first one is used.
 

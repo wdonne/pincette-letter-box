@@ -5,10 +5,8 @@ import static io.netty.handler.codec.http.HttpMethod.POST;
 import static io.netty.handler.codec.http.HttpResponseStatus.ACCEPTED;
 import static io.netty.handler.codec.http.HttpResponseStatus.BAD_REQUEST;
 import static io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN;
-import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERROR;
 import static io.netty.handler.codec.http.HttpResponseStatus.NOT_IMPLEMENTED;
 import static java.lang.Boolean.FALSE;
-import static java.lang.Boolean.TRUE;
 import static java.lang.System.getenv;
 import static java.net.URLDecoder.decode;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -16,6 +14,7 @@ import static java.time.Instant.now;
 import static java.util.Arrays.stream;
 import static java.util.Optional.ofNullable;
 import static java.util.UUID.randomUUID;
+import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.logging.Level.SEVERE;
 import static java.util.regex.Pattern.compile;
 import static net.pincette.config.Util.configValue;
@@ -25,9 +24,7 @@ import static net.pincette.jes.Util.getUsername;
 import static net.pincette.jes.tel.OtelUtil.metrics;
 import static net.pincette.jes.util.Kafka.createReliableProducer;
 import static net.pincette.jes.util.Kafka.fromConfig;
-import static net.pincette.jes.util.Kafka.send;
 import static net.pincette.json.JsonUtil.createObjectBuilder;
-import static net.pincette.json.JsonUtil.getString;
 import static net.pincette.json.JsonUtil.string;
 import static net.pincette.letterbox.Common.LETTER_BOX;
 import static net.pincette.letterbox.Common.LOGGER;
@@ -37,9 +34,12 @@ import static net.pincette.netty.http.Util.simpleResponse;
 import static net.pincette.netty.http.Util.wrapMetrics;
 import static net.pincette.netty.http.Util.wrapTracing;
 import static net.pincette.rs.Chain.with;
-import static net.pincette.rs.Util.asValueAsync;
+import static net.pincette.rs.FlattenList.flattenList;
+import static net.pincette.rs.LambdaSubscriber.lambdaSubscriber;
 import static net.pincette.rs.Util.empty;
 import static net.pincette.rs.json.Util.parseJson;
+import static net.pincette.rs.kafka.KafkaSubscriber.subscriber;
+import static net.pincette.util.Collections.list;
 import static net.pincette.util.Collections.map;
 import static net.pincette.util.Collections.put;
 import static net.pincette.util.Pair.pair;
@@ -51,15 +51,17 @@ import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.opentelemetry.api.OpenTelemetry;
-import java.io.Closeable;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Flow.Publisher;
 import java.util.concurrent.Flow.Subscriber;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -72,13 +74,13 @@ import net.pincette.kafka.json.JsonSerializer;
 import net.pincette.netty.http.HttpServer;
 import net.pincette.netty.http.Metrics;
 import net.pincette.netty.http.RequestHandler;
+import net.pincette.rs.DequePublisher;
 import net.pincette.rs.Source;
 import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
 
-public class Server implements Closeable {
+public class Server implements AutoCloseable {
   private static final String ANONYMOUS = "anonymous";
   private static final String AS_STRING = "asString";
   private static final String CN_PATTERN = "cnPattern";
@@ -92,8 +94,7 @@ public class Server implements Closeable {
   private static final String INSTANCE_ATTRIBUTE = "instance";
   private static final String INSTANCE_ENV = "INSTANCE";
   private static final String KAFKA = "kafka";
-  private static final String TOPIC = "topic";
-  private static final String TRACE_ID = "traceId";
+  private static final String MESSAGE_TOPIC = "topic";
   private static final String TRACES_TOPIC = "tracesTopic";
 
   private final Config config;
@@ -102,12 +103,13 @@ public class Server implements Closeable {
   private final String instance = ofNullable(getenv(INSTANCE_ENV)).orElse(randomUUID().toString());
   private final Map<String, String> attributes = map(pair(INSTANCE_ATTRIBUTE, instance));
   private final int port;
-  private final Producer<String, JsonObject> tracesProducer;
+  private final String topic;
   private final String tracesTopic;
 
   private Server(final int port, final Config config) {
     this.port = port;
     this.config = config;
+    topic = config != null ? config.getString(MESSAGE_TOPIC) : null;
     tracesTopic = config != null ? tracesTopic(config) : null;
     eventTrace =
         config != null && tracesTopic != null
@@ -127,7 +129,6 @@ public class Server implements Closeable {
                         .orElseGet(this::handler),
                     LOGGER))
             : null;
-    tracesProducer = port != -1 && config != null && tracesTopic != null ? producer(config) : null;
   }
 
   public Server() {
@@ -196,21 +197,29 @@ public class Server implements Closeable {
         fromConfig(config, KAFKA), new StringSerializer(), new StringSerializer());
   }
 
-  private static CompletionStage<JsonObject> readMessage(final Publisher<ByteBuf> requestBody) {
-    return asValueAsync(
-            with(requestBody)
-                .map(ByteBuf::nioBuffer)
-                .map(parseJson())
-                .filter(JsonUtil::isObject)
-                .map(JsonValue::asJsonObject)
-                .get())
-        .exceptionally(t -> null);
+  private static CompletionStage<Throwable> readMessage(
+      final Publisher<ByteBuf> requestBody,
+      final Deque<JsonObject> publisher,
+      final String domain) {
+    final CompletableFuture<Throwable> future = new CompletableFuture<>();
+
+    with(requestBody)
+        .map(ByteBuf::nioBuffer)
+        .map(parseJson())
+        .filter(JsonUtil::isObject)
+        .map(JsonValue::asJsonObject)
+        .map(v -> updateMessage(v, domain))
+        .get()
+        .subscribe(
+            lambdaSubscriber(publisher::addFirst, () -> future.complete(null), future::complete));
+
+    return future;
   }
 
   private static Publisher<ByteBuf> reportException(
       final HttpResponse response, final Throwable t) {
     LOGGER.log(SEVERE, t, t::getMessage);
-    response.setStatus(INTERNAL_SERVER_ERROR);
+    response.setStatus(BAD_REQUEST);
 
     return Source.of(wrappedBuffer(getStackTrace(t).getBytes(UTF_8)));
   }
@@ -218,21 +227,6 @@ public class Server implements Closeable {
   private static CompletionStage<Publisher<ByteBuf>> response(
       final HttpResponse response, final HttpResponseStatus status) {
     return simpleResponse(response, status, empty());
-  }
-
-  private static Function<JsonObject, CompletionStage<Boolean>> sendMessage(final Config config) {
-    final boolean asString = configValue(config::getBoolean, AS_STRING).orElse(FALSE);
-    final KafkaProducer<String, JsonObject> producer = asString ? null : producer(config);
-    final KafkaProducer<String, String> producerString = asString ? producerString(config) : null;
-    final String topic = config.getString(TOPIC);
-
-    return asString
-        ? (message ->
-            send(
-                producerString,
-                new ProducerRecord<>(topic, randomUUID().toString(), string(message, false))))
-        : (message ->
-            send(producer, new ProducerRecord<>(topic, randomUUID().toString(), message)));
   }
 
   private static String tracesTopic(final Config config) {
@@ -256,9 +250,7 @@ public class Server implements Closeable {
     final List<String> domains =
         configValue(config::getStringList, DOMAINS).orElseGet(Collections::emptyList);
     final String header = configValue(config::getString, HEADER).orElse(DEFAULT_HEADER);
-    final Function<Boolean, HttpResponseStatus> result =
-        r -> TRUE.equals(r) ? ACCEPTED : INTERNAL_SERVER_ERROR;
-    final Function<JsonObject, CompletionStage<Boolean>> sendMessage = sendMessage(config);
+    final Deque<JsonObject> publisher = publisher();
 
     if (domains.isEmpty()) {
       LOGGER.warning("No configured domains found in config");
@@ -272,50 +264,68 @@ public class Server implements Closeable {
             .filter(doms -> !doms.isEmpty())
             .map(
                 doms ->
-                    readMessage(requestBody)
+                    readMessage(requestBody, publisher, doms.get(0))
                         .thenComposeAsync(
-                            json ->
-                                json != null
-                                    ? sendMessage
-                                        .apply(telemetry(updateMessage(json, doms.get(0))))
-                                        .thenComposeAsync(v -> response(response, result.apply(v)))
-                                        .exceptionally(t -> reportException(response, t))
-                                    : response(response, BAD_REQUEST)))
+                            t ->
+                                t == null
+                                    ? response(response, ACCEPTED)
+                                    : completedFuture(reportException(response, t))))
             .orElseGet(
                 () ->
                     response(
                         response, !request.method().equals(POST) ? NOT_IMPLEMENTED : FORBIDDEN));
   }
 
-  public CompletionStage<Boolean> run() {
-    return httpServer.run();
+  private <T> List<ProducerRecord<String, T>> publishMessage(
+      final JsonObject json, final Function<JsonObject, T> mapper) {
+    final ProducerRecord<String, T> message =
+        new ProducerRecord<>(topic, json.getString(ID), mapper.apply(json));
+    final ProducerRecord<String, T> trace =
+        tracesTopic != null
+            ? new ProducerRecord<>(
+                tracesTopic, json.getString(CORR), mapper.apply(traceMessage(json)))
+            : null;
+
+    return trace != null ? list(message, trace) : list(message);
   }
 
-  private void sendTrace(final JsonObject message) {
-    tracesProducer.send(new ProducerRecord<>(tracesTopic, message.getString(TRACE_ID), message));
+  private Deque<JsonObject> publisher() {
+    final boolean asString = configValue(config::getBoolean, AS_STRING).orElse(FALSE);
+
+    return asString
+        ? publisher(v -> string(v, false), () -> producerString(config))
+        : publisher(v -> v, () -> producer(config));
+  }
+
+  private <T> Deque<JsonObject> publisher(
+      final Function<JsonObject, T> mapper, final Supplier<KafkaProducer<String, T>> producer) {
+    final DequePublisher<JsonObject> dequePublisher = new DequePublisher<>();
+
+    with(dequePublisher)
+        .map(v -> publishMessage(v, mapper))
+        .map(flattenList())
+        .get()
+        .subscribe(subscriber(producer));
+
+    return dequePublisher.getDeque();
+  }
+
+  public CompletionStage<Boolean> run() {
+    return httpServer.run();
   }
 
   public void start() {
     httpServer.start();
   }
 
-  private JsonObject telemetry(final JsonObject json) {
-    ofNullable(tracesTopic).flatMap(t -> traceMessage(json)).ifPresent(this::sendTrace);
-
-    return json;
-  }
-
-  private Optional<JsonObject> traceMessage(final JsonObject json) {
-    return getString(json, "/" + CORR)
-        .map(
-            corr ->
-                eventTrace
-                    .withTraceId(corr)
-                    .withTimestamp(now())
-                    .withAttributes(put(attributes, DOMAIN, json.getString(DOMAIN_FIELD)))
-                    .withUsername(getUsername(json).orElse(ANONYMOUS))
-                    .toJson()
-                    .build());
+  private JsonObject traceMessage(final JsonObject json) {
+    return eventTrace
+        .withTraceId(json.getString(CORR))
+        .withTimestamp(now())
+        .withAttributes(put(attributes, DOMAIN, json.getString(DOMAIN_FIELD)))
+        .withUsername(getUsername(json).orElse(ANONYMOUS))
+        .toJson()
+        .build();
   }
 
   public Server withConfig(final Config config) {
