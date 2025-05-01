@@ -33,6 +33,7 @@ import static net.pincette.util.Collections.merge;
 import static net.pincette.util.Collections.set;
 import static net.pincette.util.Pair.pair;
 import static net.pincette.util.ScheduledCompletionStage.composeAsyncAfter;
+import static net.pincette.util.Util.initLogging;
 import static net.pincette.util.Util.tryToGetWithRethrow;
 import static org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
 import static org.apache.kafka.clients.CommonClientConfigs.GROUP_ID_CONFIG;
@@ -90,6 +91,7 @@ class TestServer {
 
   @BeforeAll
   static void beforeAll() {
+    initLogging();
     createTopics(set(newTopic(topic)), admin).toCompletableFuture().join();
   }
 

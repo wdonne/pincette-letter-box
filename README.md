@@ -35,12 +35,14 @@ A few OpenTelemetry observable counters are emitted every minute. The following 
 |http.server.average_duration_millis|The average request duration in the measured interval.|
 |http.server.average_request_bytes|The average request body size in bytes in the measured interval.|
 |http.server.average_response_bytes|The average response body size in bytes in the measured interval.|
+|http.server.letter_box_messages|The number of delivered letter box messages in the measured interval.|
 |http.server.requests|The number of requests during the measured interval.|
 
 The following attributes are added to the counters.
 
 |Attribute|Description|
 |---|---|
+|domain|The domain of the sender.|
 |http.request.method|The request method.|
 |http.response.status_code|The status code of the response.|
 |instance|The UUID of the JES HTTP instance.|

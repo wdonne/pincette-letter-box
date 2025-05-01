@@ -6,7 +6,7 @@
 
   <groupId>net.pincette</groupId>
   <artifactId>pincette-letter-box</artifactId>
-  <version>1.2.0</version>
+  <version>1.2.1</version>
   <name>pincette-letter-box</name>
   <description>HTTP server that accepts JSON from configured domains and puts it on Kafka
   </description>
@@ -53,47 +53,22 @@
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-common</artifactId>
-      <version>2.5.2</version>
-    </dependency>
-    <dependency>
-      <groupId>net.pincette</groupId>
-      <artifactId>pincette-json</artifactId>
-      <version>2.2.0</version>
-    </dependency>
-    <dependency>
-      <groupId>net.pincette</groupId>
-      <artifactId>pincette-jes-util</artifactId>
-      <version>3.2.6</version>
-    </dependency>
-    <dependency>
-      <groupId>net.pincette</groupId>
-      <artifactId>pincette-kafka-json</artifactId>
-      <version>1.0.12</version>
+      <version>2.5.3</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-netty-http</artifactId>
-      <version>3.2.6</version>
+      <version>3.2.7</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
-      <artifactId>pincette-rs-kafka</artifactId>
-      <version>1.2.5</version>
+      <artifactId>pincette-letter-box-kafka</artifactId>
+      <version>1.0.0</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
-      <artifactId>pincette-rs-json</artifactId>
-      <version>1.0.17</version>
-    </dependency>
-    <dependency>
-      <groupId>net.pincette</groupId>
-      <artifactId>pincette-jes-tel</artifactId>
+      <artifactId>pincette-config-util</artifactId>
       <version>1.0.1</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.kafka</groupId>
-      <artifactId>kafka-clients</artifactId>
-      <version>3.9.0</version>
     </dependency>
     <dependency>
       <groupId>com.typesafe</groupId>
@@ -118,7 +93,7 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
-      <version>5.12.1</version>
+      <version>5.12.2</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -177,6 +152,9 @@
             <mainClass>net.pincette.letterbox.Application</mainClass>
             <jvmFlags>
               <jvmFlag>-XX:+ExitOnOutOfMemoryError</jvmFlag>
+              <jvmFlag>-XX:MaxRAMPercentage=75.0</jvmFlag>
+              <jvmFlag>-XX:MaxHeapFreeRatio=10</jvmFlag>
+              <jvmFlag>-XX:MinHeapFreeRatio=5</jvmFlag>
             </jvmFlags>
             <args>
               <arg>9000</arg>
