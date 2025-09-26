@@ -33,6 +33,9 @@ import net.pincette.letterbox.kafka.Publisher;
 import net.pincette.letterbox.kafka.Publisher.Context;
 import net.pincette.netty.http.HttpServer;
 
+/**
+ * @author Werner Donné
+ */
 public class Server implements AutoCloseable {
   private static final String CN_PATTERN = "cnPattern";
   static final String DEFAULT_HEADER = "X-Forwarded-Tls-Client-Cert-Info";
@@ -104,7 +107,7 @@ public class Server implements AutoCloseable {
       LOGGER.warning(() -> "None of the domains " + found + " are allowed");
     }
 
-    return Optional.of(result).filter(r -> !r.isEmpty()).map(r -> r.get(0));
+    return Optional.of(result).filter(r -> !r.isEmpty()).map(List::getFirst);
   }
 
   private static Stream<String> getSupportedDomains(final String domain, final List<String> found) {

@@ -24,6 +24,7 @@ The configuration is managed by the [Lightbend Config package](https://github.co
 |namespace|No|A name to distinguish several deployments in the same environment. The default value is `sse`.|
 |otlp.grpc|No|The OpenTelemetry endpoint for logs and metrics. It should be a URL like `http://localhost:4317`.|
 |topic|Yes|The Kafka topic in which the messages are published.|
+|traceSamplePercentage|No|The percentage of distributed trace samples that are retained. The value should be between 1 and 100. The default is 10. You should use the same percentage in all components that contribute to a trace, otherwise you may see incomplete traces.|
 |tracesTopic|No|The Kafka topic to which the event traces are sent.|
 
 ## Telemetry
