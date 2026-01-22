@@ -60,6 +60,8 @@ You can build the tool with `mvn clean package`. This will produce a self-contai
 
 Docker images can be found at [https://hub.docker.com/repository/docker/wdonne/pincette-letter-box](https://hub.docker.com/repository/docker/wdonne/pincette-letter-box).
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/wdonne/pincette-letter-box)
+
 ## Kubernetes
 
 You can mount the configuration in a `ConfigMap` and `Secret` combination. The `ConfigMap` should be mounted at `/conf/application.conf`. You then include the secret in the configuration from where you have mounted it. See also [https://github.com/lightbend/config/blob/main/HOCON.md#include-syntax](https://github.com/lightbend/config/blob/main/HOCON.md#include-syntax).
