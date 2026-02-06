@@ -6,7 +6,7 @@
 
   <groupId>net.pincette</groupId>
   <artifactId>pincette-letter-box</artifactId>
-  <version>1.3.3</version>
+  <version>1.3.4</version>
   <name>pincette-letter-box</name>
   <description>HTTP server that accepts JSON from configured domains and puts it on Kafka
   </description>
@@ -58,22 +58,17 @@
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-netty-http</artifactId>
-      <version>3.2.16</version>
+      <version>3.2.17</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-letter-box-kafka</artifactId>
-      <version>1.1.3</version>
+      <version>1.1.4</version>
     </dependency>
     <dependency>
       <groupId>net.pincette</groupId>
       <artifactId>pincette-config-util</artifactId>
-      <version>1.0.3</version>
-    </dependency>
-    <dependency>
-      <groupId>com.typesafe</groupId>
-      <artifactId>config</artifactId>
-      <version>1.4.3</version>
+      <version>1.0.4</version>
     </dependency>
     <dependency>
       <groupId>org.glassfish</groupId>
@@ -103,7 +98,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-assembly-plugin</artifactId>
-        <version>3.7.1</version>
+        <version>3.8.0</version>
         <executions>
           <execution>
             <phase>package</phase>
